@@ -9,10 +9,8 @@ import org.datavec.api.records.metadata.RecordMetaDataImageURI;
 import org.datavec.api.split.FileSplit;
 import org.datavec.image.loader.NativeImageLoader;
 import org.datavec.image.recordreader.objdetect.ObjectDetectionRecordReader;
-import org.datavec.image.recordreader.objdetect.impl.SvhnLabelProvider;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
-import org.deeplearning4j.datasets.fetchers.DataSetType;
-import org.deeplearning4j.datasets.fetchers.SvhnDataFetcher;
+import org.deeplearning4j.examples.convolution.ObjectDetectionLabelProvider;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.ConvolutionMode;
 import org.deeplearning4j.nn.conf.GradientNormalization;
@@ -33,7 +31,6 @@ import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.learning.config.Adam;
-import org.nd4j.linalg.learning.config.Nesterovs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +52,7 @@ import static org.bytedeco.javacpp.opencv_imgproc.*;
 public class HouseNumberDetection {
     private static final Logger log = LoggerFactory.getLogger(HouseNumberDetection.class);
 
-    public static void main(String[] args) throws java.lang.Exception {
+    public static void main(String[] args) throws Exception {
 
         // parameters matching the pretrained TinyYOLO model
         int width = 416;
@@ -65,7 +62,7 @@ public class HouseNumberDetection {
         int gridHeight = 13;
 
         // number classes (digits) for the SVHN datasets
-        int nClasses = 10;
+        int nClasses = 1; //10;
 
         // parameters for the Yolo2OutputLayer
         int nBoxes = 5;
@@ -75,30 +72,34 @@ public class HouseNumberDetection {
         double detectionThreshold = 0.5;
 
         // parameters for the training phase
-        int batchSize = 10;
+        int batchSize = 8;
         int nEpochs = 20;
-        double learningRate = 1e-4;
+        double learningRate = 1e-4; // 0.0001
         double lrMomentum = 0.9;
 
         int seed = 123;
         Random rng = new Random(seed);
 
-        SvhnDataFetcher fetcher = new SvhnDataFetcher();
-        File trainDir = fetcher.getDataSetPath(DataSetType.TRAIN);
-        File testDir = fetcher.getDataSetPath(DataSetType.TEST);
+        //SvhnDataFetcher fetcher = new SvhnDataFetcher();
+        //File trainDir = fetcher.getDataSetPath(DataSetType.TRAIN);
+        //File testDir = fetcher.getDataSetPath(DataSetType.TEST);
 
+        File trainDir = new File("/home/sem/DL4J/train/");
+        File testDir = new File("/home/sem/DL4J/test/");
 
         log.info("Load data...");
 
         FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
         FileSplit testData = new FileSplit(testDir, NativeImageLoader.ALLOWED_FORMATS, rng);
 
+        //ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(trainDir));
         ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels,
-                        gridHeight, gridWidth, new SvhnLabelProvider(trainDir));
+            gridHeight, gridWidth, new ObjectDetectionLabelProvider("/home/sem/DL4J/train/"));
         recordReaderTrain.initialize(trainData);
 
+        //ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(testDir));
         ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels,
-                        gridHeight, gridWidth, new SvhnLabelProvider(testDir));
+            gridHeight, gridWidth, new ObjectDetectionLabelProvider("/home/sem/DL4J/test/"));
         recordReaderTest.initialize(testData);
 
         // ObjectDetectionRecordReader performs regression, so we need to specify it here
@@ -110,7 +111,7 @@ public class HouseNumberDetection {
 
 
         ComputationGraph model;
-        String modelFilename = "model.zip";
+        String modelFilename = "/home/sem/model.zip";
 
         if (new File(modelFilename).exists()) {
             log.info("Load model...");
@@ -123,43 +124,42 @@ public class HouseNumberDetection {
             INDArray priors = Nd4j.create(priorBoxes);
 
             FineTuneConfiguration fineTuneConf = new FineTuneConfiguration.Builder()
-                    .seed(seed)
-                    .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-                    .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
-                    .gradientNormalizationThreshold(1.0)
-                    .updater(new Adam.Builder().learningRate(learningRate).build())
-                    //.updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
-                    .l2(0.00001)
-                    .activation(Activation.IDENTITY)
-                    .trainingWorkspaceMode(WorkspaceMode.SEPARATE)
-                    .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
-                    .build();
+                .seed(seed)
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
+                .gradientNormalizationThreshold(1.0)
+                .updater(new Adam.Builder().learningRate(learningRate).build())
+                //.updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
+                .l2(0.00001)
+                .activation(Activation.IDENTITY)
+                .trainingWorkspaceMode(WorkspaceMode.SEPARATE)
+                .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
+                .build();
 
             model = new TransferLearning.GraphBuilder(pretrained)
-                    .fineTuneConfiguration(fineTuneConf)
-                    .removeVertexKeepConnections("conv2d_9")
-                    .addLayer("convolution2d_9",
-                            new ConvolutionLayer.Builder(1,1)
-                                    .nIn(1024)
-                                    .nOut(nBoxes * (5 + nClasses))
-                                    .stride(1,1)
-                                    .convolutionMode(ConvolutionMode.Same)
-                                    .weightInit(WeightInit.XAVIER)
-                                    .activation(Activation.IDENTITY)
-                                    .build(),
-                            "leaky_re_lu_8")
-                    .addLayer("outputs",
-                            new Yolo2OutputLayer.Builder()
-                                    .lambbaNoObj(lambdaNoObj)
-                                    .lambdaCoord(lambdaCoord)
-                                    .boundingBoxPriors(priors)
-                                    .build(),
-                            "convolution2d_9")
-                    .setOutputs("outputs")
-                    .build();
+                .fineTuneConfiguration(fineTuneConf)
+                .removeVertexKeepConnections("conv2d_9")
+                .addLayer("convolution2d_9",
+                    new ConvolutionLayer.Builder(1,1)
+                        .nIn(1024)
+                        .nOut(nBoxes * (5 + nClasses)) // 5 * (5 + 10)
+                        .stride(1,1)
+                        .convolutionMode(ConvolutionMode.Same)
+                        .weightInit(WeightInit.XAVIER)
+                        .activation(Activation.IDENTITY)
+                        .build(),
+                    "leaky_re_lu_8")
+                .addLayer("outputs",
+                    new Yolo2OutputLayer.Builder()
+                        .lambbaNoObj(lambdaNoObj) // 0.5
+                        .lambdaCoord(lambdaCoord) // 1.0
+                        .boundingBoxPriors(priors)
+                        .build(),
+                    "convolution2d_9")
+                .setOutputs("outputs")
+                .build();
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
-
 
             log.info("Train model...");
 
@@ -171,6 +171,7 @@ public class HouseNumberDetection {
                 }
                 log.info("*** Completed epoch {} ***", i);
             }
+            // save the model
             ModelSerializer.writeModel(model, modelFilename, true);
         }
 
@@ -179,7 +180,7 @@ public class HouseNumberDetection {
         CanvasFrame frame = new CanvasFrame("HouseNumberDetection");
         OpenCVFrameConverter.ToMat converter = new OpenCVFrameConverter.ToMat();
         org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer yout =
-                        (org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer)model.getOutputLayer(0);
+            (org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer)model.getOutputLayer(0);
         List<String> labels = train.getLabels();
         test.setCollectMetaData(true);
         while (test.hasNext() && frame.isVisible()) {
