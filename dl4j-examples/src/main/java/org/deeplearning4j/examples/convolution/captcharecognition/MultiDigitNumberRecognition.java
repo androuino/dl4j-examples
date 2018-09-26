@@ -45,12 +45,12 @@ public class MultiDigitNumberRecognition {
     private static String rootPath = System.getProperty("user.dir");
     private static String modelPath = rootPath.substring(0, rootPath.lastIndexOf(File.separatorChar)) + File.separatorChar + "out" + File.separatorChar + "models" + File.separatorChar + "validateCodeCheckModel.json";
 
-
     public static void main(String[] args) throws Exception {
         long startTime = System.currentTimeMillis();
         System.out.println(startTime);
+        System.out.println(modelPath);
         File modelFile = new File(modelPath);
-        boolean hasFile = modelFile.exists()?true:modelFile.createNewFile();
+        boolean hasFile = modelFile.exists() ? true : modelFile.createNewFile();
         log.info( modelFile.getPath() );
        // ComputationGraph model = ModelSerializer.restoreComputationGraph(modelFile);
         ComputationGraph model =  createModel();
