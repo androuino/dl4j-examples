@@ -16,7 +16,7 @@ import org.deeplearning4j.nn.conf.ConvolutionMode;
 import org.deeplearning4j.nn.conf.GradientNormalization;
 import org.deeplearning4j.nn.conf.WorkspaceMode;
 import org.deeplearning4j.nn.conf.inputs.InputType;
-import org.deeplearning4j.nn.conf.layers.ConvolutionLayer;
+import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.layers.objdetect.Yolo2OutputLayer;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.layers.objdetect.DetectedObject;
@@ -25,12 +25,15 @@ import org.deeplearning4j.nn.transferlearning.TransferLearning;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.util.ModelSerializer;
+import org.deeplearning4j.zoo.model.Darknet19;
 import org.deeplearning4j.zoo.model.TinyYOLO;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.learning.config.Adam;
+import org.nd4j.linalg.learning.config.Nesterovs;
+import org.nd4j.linalg.lossfunctions.LossFunctions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,8 +58,8 @@ public class HouseNumberDetection {
     public static void main(String[] args) throws Exception {
 
         // parameters matching the pretrained TinyYOLO model
-        int width = 416;
-        int height = 416;
+        int width = 1080;
+        int height = 810;
         int nChannels = 3;
         int gridWidth = 13;
         int gridHeight = 13;
@@ -74,7 +77,7 @@ public class HouseNumberDetection {
         // parameters for the training phase
         int batchSize = 8;
         int nEpochs = 20;
-        double learningRate = 1e-4; // 0.0001
+        double learningRate = 1e-2; // 0.0001
         double lrMomentum = 0.9;
 
         int seed = 123;
@@ -120,7 +123,8 @@ public class HouseNumberDetection {
         } else {
             log.info("Build model...");
 
-            ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
+            //ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
+            ComputationGraph pretrained = (ComputationGraph)Darknet19.builder().numClasses(nClasses).build().initPretrained();
             INDArray priors = Nd4j.create(priorBoxes);
 
             FineTuneConfiguration fineTuneConf = new FineTuneConfiguration.Builder()
@@ -128,21 +132,20 @@ public class HouseNumberDetection {
                 .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                 .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
                 .gradientNormalizationThreshold(1.0)
-                .updater(new Adam.Builder().learningRate(learningRate).build())
-                //.updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
+                //.updater(new Adam.Builder().learningRate(learningRate).build())
+                .updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
                 .l2(0.00001)
                 .activation(Activation.IDENTITY)
                 .trainingWorkspaceMode(WorkspaceMode.SEPARATE)
                 .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
                 .build();
 
-            model = new TransferLearning.GraphBuilder(pretrained)
+            /*model = new TransferLearning.GraphBuilder(pretrained)
                 .fineTuneConfiguration(fineTuneConf)
-                .removeVertexKeepConnections("conv2d_9")
                 .addLayer("convolution2d_9",
                     new ConvolutionLayer.Builder(1,1)
                         .nIn(1024)
-                        .nOut(nBoxes * (5 + nClasses)) // 5 * (5 + 10)
+                        .nOut(nBoxes * (5 + nClasses))
                         .stride(1,1)
                         .convolutionMode(ConvolutionMode.Same)
                         .weightInit(WeightInit.XAVIER)
@@ -150,6 +153,7 @@ public class HouseNumberDetection {
                         .build(),
                     "leaky_re_lu_8")
                 .addLayer("outputs",
+                    new ConvolutionLayer().
                     new Yolo2OutputLayer.Builder()
                         .lambbaNoObj(lambdaNoObj) // 0.5
                         .lambdaCoord(lambdaCoord) // 1.0
@@ -157,6 +161,10 @@ public class HouseNumberDetection {
                         .build(),
                     "convolution2d_9")
                 .setOutputs("outputs")
+                .build();*/
+
+            model = new TransferLearning.GraphBuilder(pretrained)
+                .fineTuneConfiguration(fineTuneConf)
                 .build();
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
