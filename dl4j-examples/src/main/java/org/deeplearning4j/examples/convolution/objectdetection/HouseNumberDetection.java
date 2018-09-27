@@ -115,7 +115,7 @@ public class HouseNumberDetection {
 
 
         ComputationGraph model;
-        String modelFilename = "resources/darknet.zip";
+        String modelFilename = "resources/darknet19.zip";
 
         if (new File(modelFilename).exists()) {
             log.info("Load model...");
@@ -125,12 +125,11 @@ public class HouseNumberDetection {
             log.info("Build model...");
 
             //ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
-            ComputationGraph pretrained = (ComputationGraph)Darknet19.builder().numClasses(nClasses).build().init();
+            ComputationGraph pretrained = Darknet19.builder().numClasses(nClasses).updater(new Nesterovs(1e-2, 0.9)).build().init();
             INDArray priors = Nd4j.create(priorBoxes);
             pretrained.setInputs(priors);
 
             model = new TransferLearning.GraphBuilder(pretrained)
-                //.fineTuneConfiguration(fineTuneConf)
                 .build();
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
