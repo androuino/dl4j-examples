@@ -20,6 +20,7 @@ import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.layers.objdetect.Yolo2OutputLayer;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.layers.objdetect.DetectedObject;
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.transferlearning.FineTuneConfiguration;
 import org.deeplearning4j.nn.transferlearning.TransferLearning;
 import org.deeplearning4j.nn.weights.WeightInit;
@@ -76,7 +77,7 @@ public class HouseNumberDetection {
 
         // parameters for the training phase
         int batchSize = 8;
-        int nEpochs = 20;
+        int nEpochs = 10;
         double learningRate = 1e-2; // 0.0001
         double lrMomentum = 0.9;
 
@@ -114,7 +115,7 @@ public class HouseNumberDetection {
 
 
         ComputationGraph model;
-        String modelFilename = "/home/sem/model.zip";
+        String modelFilename = "resources/darknet.zip";
 
         if (new File(modelFilename).exists()) {
             log.info("Load model...");
@@ -124,47 +125,12 @@ public class HouseNumberDetection {
             log.info("Build model...");
 
             //ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
-            ComputationGraph pretrained = (ComputationGraph)Darknet19.builder().numClasses(nClasses).build().initPretrained();
+            ComputationGraph pretrained = (ComputationGraph)Darknet19.builder().numClasses(nClasses).build().init();
             INDArray priors = Nd4j.create(priorBoxes);
-
-            FineTuneConfiguration fineTuneConf = new FineTuneConfiguration.Builder()
-                .seed(seed)
-                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-                .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
-                .gradientNormalizationThreshold(1.0)
-                //.updater(new Adam.Builder().learningRate(learningRate).build())
-                .updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
-                .l2(0.00001)
-                .activation(Activation.IDENTITY)
-                .trainingWorkspaceMode(WorkspaceMode.SEPARATE)
-                .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
-                .build();
-
-            /*model = new TransferLearning.GraphBuilder(pretrained)
-                .fineTuneConfiguration(fineTuneConf)
-                .addLayer("convolution2d_9",
-                    new ConvolutionLayer.Builder(1,1)
-                        .nIn(1024)
-                        .nOut(nBoxes * (5 + nClasses))
-                        .stride(1,1)
-                        .convolutionMode(ConvolutionMode.Same)
-                        .weightInit(WeightInit.XAVIER)
-                        .activation(Activation.IDENTITY)
-                        .build(),
-                    "leaky_re_lu_8")
-                .addLayer("outputs",
-                    new ConvolutionLayer().
-                    new Yolo2OutputLayer.Builder()
-                        .lambbaNoObj(lambdaNoObj) // 0.5
-                        .lambdaCoord(lambdaCoord) // 1.0
-                        .boundingBoxPriors(priors)
-                        .build(),
-                    "convolution2d_9")
-                .setOutputs("outputs")
-                .build();*/
+            pretrained.setInputs(priors);
 
             model = new TransferLearning.GraphBuilder(pretrained)
-                .fineTuneConfiguration(fineTuneConf)
+                //.fineTuneConfiguration(fineTuneConf)
                 .build();
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
