@@ -1,17 +1,22 @@
 package org.deeplearning4j.examples.convolution.objectdetection;
 
 import java.io.File;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Random;
 import org.bytedeco.javacv.CanvasFrame;
 import org.bytedeco.javacv.OpenCVFrameConverter;
+import org.datavec.api.io.filters.RandomPathFilter;
 import org.datavec.api.records.metadata.RecordMetaDataImageURI;
 import org.datavec.api.split.FileSplit;
+import org.datavec.api.split.InputSplit;
 import org.datavec.image.loader.NativeImageLoader;
 import org.datavec.image.recordreader.objdetect.ObjectDetectionRecordReader;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
 import org.deeplearning4j.examples.convolution.ObjectDetectionLabelProvider;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
+import org.deeplearning4j.nn.conf.CacheMode;
 import org.deeplearning4j.nn.conf.ConvolutionMode;
 import org.deeplearning4j.nn.conf.GradientNormalization;
 import org.deeplearning4j.nn.conf.WorkspaceMode;
@@ -59,11 +64,12 @@ public class HouseNumberDetection {
     public static void main(String[] args) throws Exception {
 
         // parameters matching the pretrained TinyYOLO model
-        int width = 1080;
-        int height = 810;
+        int width = 416;
+        int height = 416;
         int nChannels = 3;
-        int gridWidth = 13;
-        int gridHeight = 13;
+        int gridWidth = 7;
+        int gridHeight = 7;
+        int[] inputShape = {3, 224, 224};
 
         // number classes (digits) for the SVHN datasets
         int nClasses = 1; //10;
@@ -88,22 +94,40 @@ public class HouseNumberDetection {
         //File trainDir = fetcher.getDataSetPath(DataSetType.TRAIN);
         //File testDir = fetcher.getDataSetPath(DataSetType.TEST);
 
-        File trainDir = new File("/home/sem/DL4J/train/");
-        File testDir = new File("/home/sem/DL4J/test/");
+        File trainDir = new File("/home/remote/DL4J/train/");
+        File testDir = new File("/home/remote/DL4J/test/");
+
+        String dataDir = "/home/remote/dataset/";
+        File imgDir = new File(dataDir, "JPEGImages");
 
         log.info("Load data...");
 
-        FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
-        FileSplit testData = new FileSplit(testDir, NativeImageLoader.ALLOWED_FORMATS, rng);
+        RandomPathFilter pathFilter = new RandomPathFilter(rng) {
+            @Override
+            protected boolean accept(String name) {
+                name = name.replace("/JPEGImages/", "/Annotations/").replace(".jpg", ".xml");
+                try {
+                    return new File(new URI(name)).exists();
+                } catch (URISyntaxException ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        };
+        InputSplit[] data = new FileSplit(imgDir, NativeImageLoader.ALLOWED_FORMATS, rng).sample(pathFilter, 0.8, 0.2);
+        InputSplit trainData = data[0];
+        InputSplit testData = data[1];
+
+        //FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
+        //FileSplit testData = new FileSplit(testDir, NativeImageLoader.ALLOWED_FORMATS, rng);
 
         //ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(trainDir));
         ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels,
-            gridHeight, gridWidth, new ObjectDetectionLabelProvider("/home/sem/DL4J/train/"));
+            gridHeight, gridWidth, new ObjectDetectionLabelProvider(dataDir));
         recordReaderTrain.initialize(trainData);
 
         //ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(testDir));
         ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels,
-            gridHeight, gridWidth, new ObjectDetectionLabelProvider("/home/sem/DL4J/test/"));
+            gridHeight, gridWidth, new ObjectDetectionLabelProvider(dataDir));
         recordReaderTest.initialize(testData);
 
         // ObjectDetectionRecordReader performs regression, so we need to specify it here
@@ -112,7 +136,6 @@ public class HouseNumberDetection {
 
         RecordReaderDataSetIterator test = new RecordReaderDataSetIterator(recordReaderTest, 1, 1, 1, true);
         test.setPreProcessor(new ImagePreProcessingScaler(0, 1));
-
 
         ComputationGraph model;
         String modelFilename = "resources/darknet19.zip";
@@ -125,11 +148,33 @@ public class HouseNumberDetection {
             log.info("Build model...");
 
             //ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
-            ComputationGraph pretrained = Darknet19.builder().numClasses(nClasses).updater(new Nesterovs(1e-2, 0.9)).build().init();
+            ComputationGraph pretrained = (ComputationGraph) Darknet19.builder()
+                .numClasses(30)
+                .updater(new Nesterovs(learningRate, lrMomentum))
+                .workspaceMode(WorkspaceMode.NONE)
+                .inputShape(inputShape)
+                .build()
+                .init();
             INDArray priors = Nd4j.create(priorBoxes);
-            pretrained.setInputs(priors);
 
             model = new TransferLearning.GraphBuilder(pretrained)
+                .removeVertexKeepConnections("conv2d_9")
+                .addLayer("convolution2d_9",
+                    new ConvolutionLayer.Builder(1,1)
+                        .nIn(1024)
+                        .nOut(nBoxes * (5 + nClasses))
+                        .stride(1,1)
+                        .convolutionMode(ConvolutionMode.Same)
+                        .weightInit(WeightInit.UNIFORM)
+                        .hasBias(false)
+                        .activation(Activation.IDENTITY)
+                        .build(),
+                    "activation_")
+                .addLayer("outputs", new Yolo2OutputLayer.Builder()
+                    .lambbaNoObj(lambdaNoObj)
+                    .lambdaCoord(lambdaCoord)
+                    .boundingBoxPriors(priors)
+                    .build())
                 .build();
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
