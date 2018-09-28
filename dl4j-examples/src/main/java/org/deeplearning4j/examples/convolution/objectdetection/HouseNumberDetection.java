@@ -249,7 +249,7 @@ public class HouseNumberDetection {
                 while (train.hasNext()) {
                     model.fit(train.next());
                 }
-                log.info("*** Completed epoch {} ***", i);
+                log.info("***************************************** Completed epoch {} *****************************************", i);
             }
             // save the model
             ModelSerializer.writeModel(model, modelFilename, true);
