@@ -33,6 +33,7 @@ import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.util.ModelSerializer;
 import org.deeplearning4j.zoo.model.Darknet19;
 import org.deeplearning4j.zoo.model.TinyYOLO;
+import org.deeplearning4j.zoo.model.YOLO2;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
@@ -67,9 +68,9 @@ public class HouseNumberDetection {
         int width = 416;
         int height = 416;
         int nChannels = 3;
-        int gridWidth = 7;
-        int gridHeight = 7;
-        int[] inputShape = {3, 224, 224};
+        int gridWidth = 13;
+        int gridHeight = 13;
+        int[] inputShape = {3, 416, 416};
 
         // number classes (digits) for the SVHN datasets
         int nClasses = 1; //10;
@@ -82,7 +83,7 @@ public class HouseNumberDetection {
         double detectionThreshold = 0.5;
 
         // parameters for the training phase
-        int batchSize = 8;
+        int batchSize = 2;
         int nEpochs = 10;
         double learningRate = 1e-2; // 0.0001
         double lrMomentum = 0.9;
@@ -118,6 +119,7 @@ public class HouseNumberDetection {
         InputSplit testData = data[1];
 
         //FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
+        //FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
         //FileSplit testData = new FileSplit(testDir, NativeImageLoader.ALLOWED_FORMATS, rng);
 
         //ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(trainDir));
@@ -147,17 +149,74 @@ public class HouseNumberDetection {
         } else {
             log.info("Build model...");
 
-            //ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
-            ComputationGraph pretrained = (ComputationGraph) Darknet19.builder()
-                .numClasses(30)
+            ComputationGraph pretrained = YOLO2.builder()
                 .updater(new Nesterovs(learningRate, lrMomentum))
-                .workspaceMode(WorkspaceMode.NONE)
+                .build()
+                .init();
+            INDArray priors = Nd4j.create(priorBoxes);
+
+            int layerNumber = 19;
+            model = new TransferLearning.GraphBuilder(pretrained)
+                .addLayer("convolution2d_23",
+                    new ConvolutionLayer.Builder(1,1)
+                        .nIn(1024)
+                        .nOut(nBoxes * (5 + nClasses))
+                        .weightInit(WeightInit.XAVIER)
+                        .stride(1,1)
+                        .convolutionMode(ConvolutionMode.Same)
+                        .weightInit(WeightInit.RELU)
+                        .activation(Activation.IDENTITY)
+                        .cudnnAlgoMode(ConvolutionLayer.AlgoMode.PREFER_FASTEST)
+                        .build(),
+                    "activation_22")
+                .addLayer("outputs",
+                    new Yolo2OutputLayer.Builder()
+                        .lambbaNoObj(lambdaNoObj)
+                        .lambdaCoord(lambdaCoord)
+                        .boundingBoxPriors(priors)
+                        .build(),
+                    "convolution2d_23")
+                .setOutputs("outputs")
+                .build();
+
+            /*ComputationGraph pretrained = (ComputationGraph) Darknet19.builder()
+                .numClasses(nBoxes * (5 + nClasses))
+                .updater(new Nesterovs(learningRate, lrMomentum))
+                .workspaceMode(WorkspaceMode.ENABLED)
                 .inputShape(inputShape)
                 .build()
                 .init();
             INDArray priors = Nd4j.create(priorBoxes);
 
+            int layerNumber = 19;
             model = new TransferLearning.GraphBuilder(pretrained)
+                .addLayer("outputs",
+                    new Yolo2OutputLayer.Builder()
+                        .lambbaNoObj(lambdaNoObj)
+                        .lambdaCoord(lambdaCoord)
+                        .boundingBoxPriors(priors)
+                        .build(),
+                    "loss")
+                .setOutputs("outputs")
+                .build();*/
+
+            /*ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
+            INDArray priors = Nd4j.create(priorBoxes);
+
+            FineTuneConfiguration fineTuneConf = new FineTuneConfiguration.Builder()
+                .seed(seed)
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                .gradientNormalization(GradientNormalization.RenormalizeL2PerLayer)
+                .gradientNormalizationThreshold(1.0)
+                .updater(new Adam.Builder().learningRate(learningRate).build())
+                //.updater(new Nesterovs.Builder().learningRate(learningRate).momentum(lrMomentum).build())
+                .activation(Activation.IDENTITY)
+                .trainingWorkspaceMode(WorkspaceMode.SEPARATE)
+                .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
+                .build();
+
+            model = new TransferLearning.GraphBuilder(pretrained)
+                .fineTuneConfiguration(fineTuneConf)
                 .removeVertexKeepConnections("conv2d_9")
                 .addLayer("convolution2d_9",
                     new ConvolutionLayer.Builder(1,1)
@@ -169,13 +228,16 @@ public class HouseNumberDetection {
                         .hasBias(false)
                         .activation(Activation.IDENTITY)
                         .build(),
-                    "activation_")
-                .addLayer("outputs", new Yolo2OutputLayer.Builder()
-                    .lambbaNoObj(lambdaNoObj)
-                    .lambdaCoord(lambdaCoord)
-                    .boundingBoxPriors(priors)
-                    .build())
-                .build();
+                    "leaky_re_lu_8")
+                .addLayer("outputs",
+                    new Yolo2OutputLayer.Builder()
+                        .lambbaNoObj(lambdaNoObj)
+                        .lambdaCoord(lambdaCoord)
+                        .boundingBoxPriors(priors)
+                        .build(),
+                    "convolution2d_9")
+                .setOutputs("outputs")
+                .build();*/
 
             System.out.println(model.summary(InputType.convolutional(height, width, nChannels)));
 
