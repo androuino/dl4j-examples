@@ -83,7 +83,7 @@ public class HouseNumberDetection {
         double detectionThreshold = 0.5;
 
         // parameters for the training phase
-        int batchSize = 2;
+        int batchSize = 6;
         int nEpochs = 10;
         double learningRate = 1e-2; // 0.0001
         double lrMomentum = 0.9;
@@ -98,7 +98,7 @@ public class HouseNumberDetection {
         File trainDir = new File("/home/remote/DL4J/train/");
         File testDir = new File("/home/remote/DL4J/test/");
 
-        String dataDir = "/home/remote/dataset/";
+        String dataDir = "/home/insp/Projects/ai/images/redbloodcells/dataset/";
         File imgDir = new File(dataDir, "JPEGImages");
 
         log.info("Load data...");
@@ -140,7 +140,7 @@ public class HouseNumberDetection {
         test.setPreProcessor(new ImagePreProcessingScaler(0, 1));
 
         ComputationGraph model;
-        String modelFilename = "resources/darknet19.zip";
+        String modelFilename = "resources/model.zip";
 
         if (new File(modelFilename).exists()) {
             log.info("Load model...");
