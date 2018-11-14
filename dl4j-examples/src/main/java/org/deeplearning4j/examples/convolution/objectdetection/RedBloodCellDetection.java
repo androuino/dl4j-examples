@@ -9,107 +9,74 @@ import org.bytedeco.javacv.CanvasFrame;
 import org.bytedeco.javacv.OpenCVFrameConverter;
 import org.datavec.api.io.filters.RandomPathFilter;
 import org.datavec.api.records.metadata.RecordMetaDataImageURI;
-import org.datavec.api.split.FileSplit;
 import org.datavec.api.split.InputSplit;
+import org.datavec.api.split.FileSplit;
 import org.datavec.image.loader.NativeImageLoader;
 import org.datavec.image.recordreader.objdetect.ObjectDetectionRecordReader;
 import org.datavec.image.recordreader.objdetect.impl.VocLabelProvider;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
-import org.deeplearning4j.examples.convolution.ObjectDetectionLabelProvider;
+import org.deeplearning4j.eval.Evaluation;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
-import org.deeplearning4j.nn.conf.*;
+import org.deeplearning4j.nn.conf.ConvolutionMode;
+import org.deeplearning4j.nn.conf.GradientNormalization;
+import org.deeplearning4j.nn.conf.WorkspaceMode;
 import org.deeplearning4j.nn.conf.inputs.InputType;
-import org.deeplearning4j.nn.conf.layers.*;
+import org.deeplearning4j.nn.conf.layers.ConvolutionLayer;
 import org.deeplearning4j.nn.conf.layers.objdetect.Yolo2OutputLayer;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.layers.objdetect.DetectedObject;
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.transferlearning.FineTuneConfiguration;
 import org.deeplearning4j.nn.transferlearning.TransferLearning;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.util.ModelSerializer;
-import org.deeplearning4j.zoo.PretrainedType;
-import org.deeplearning4j.zoo.model.Darknet19;
 import org.deeplearning4j.zoo.model.TinyYOLO;
-import org.deeplearning4j.zoo.model.VGG19;
-import org.deeplearning4j.zoo.model.YOLO2;
-import org.deeplearning4j.zoo.model.helper.DarknetHelper;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.learning.config.Adam;
-import org.nd4j.linalg.learning.config.Nesterovs;
-import org.nd4j.linalg.lossfunctions.LossFunctions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.bytedeco.javacpp.opencv_core.*;
 import static org.bytedeco.javacpp.opencv_imgproc.*;
 
-/**
- * Example transfer learning from a Tiny YOLO model pretrained on ImageNet and Pascal VOC
- * to perform object detection with bounding boxes on The Street View House Numbers (SVHN) Dataset.
- * <p>
- * References: <br>
- * - YOLO: Real-Time Object Detection: https://pjreddie.com/darknet/yolo/ <br>
- * - The Street View House Numbers (SVHN) Dataset: http://ufldl.stanford.edu/housenumbers/ <br>
- * <p>
- * Please note, cuDNN should be used to obtain reasonable performance: https://deeplearning4j.org/cudnn
- *
- * @author saudet
- */
-public class HouseNumberDetection {
-    private static final Logger log = LoggerFactory.getLogger(HouseNumberDetection.class);
+public class RedBloodCellDetection {
+    private static final Logger log = LoggerFactory.getLogger(RedBloodCellDetection.class);
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws java.lang.Exception {
 
         // parameters matching the pretrained TinyYOLO model
-        /*int width = 416;
+        int width = 416;
         int height = 416;
         int nChannels = 3;
         int gridWidth = 13;
-        int gridHeight = 13;*/
+        int gridHeight = 13;
 
-        // parameters matching the pretrained YOLO2 model
-        int width = 608;
-        int height = 608;
-        int nChannels = 3;
-        int gridWidth = 19;
-        int gridHeight = 19;
-        int[] inputShape = {3, 608, 608};
-
-        // number classes (digits) for the SVHN datasets
-        int nClasses = 4; //10;
+        // number classes for the red blood cells (RBC)
+        int nClasses = 4;
 
         // parameters for the Yolo2OutputLayer
         int nBoxes = 5;
         double lambdaNoObj = 0.5;
-        double lambdaCoord = 1.0;
-        double[][] priorBoxes = {{113, 37}, {147, 34}, {171, 42}, {196, 46}, {231, 52}};
-        //double[][] priorBoxes = {{2, 5}, {2.5, 6}, {3, 7}, {3.5, 8}, {4, 9}};
-        double detectionThreshold = 0.5;
+        double lambdaCoord = 5.0;
+        double[][] priorBoxes = {{2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}};
+        double detectionThreshold = 0.3;
 
         // parameters for the training phase
-        int batchSize = 8;
-        int nEpochs = 2000;
-        double learningRate = 1e-3; // 0.0001
+        int batchSize = 15;
+        int nEpochs = 50;
+        double learningRate = 1e-3;
         double lrMomentum = 0.9;
 
         int seed = 123;
         Random rng = new Random(seed);
 
-        //SvhnDataFetcher fetcher = new SvhnDataFetcher();
-        //File trainDir = fetcher.getDataSetPath(DataSetType.TRAIN);
-        //File testDir = fetcher.getDataSetPath(DataSetType.TEST);
+        String dataDir = "/home/insp/Projects/ai/images/redbloodcells/dataset/";
+        File imageDir = new File(dataDir, "JPEGImages");
 
-        File trainDir = new File("/home/remote/DL4J/train/");
-        File testDir = new File("/home/remote/DL4J/test/");
-
-        //String dataDir = "/home/insp/Projects/ai/images/redbloodcells/dataset/";
-        String dataDir = "/home/insp/Projects/ai/images/tires/tires608x608/";
-        File imgDir = new File(dataDir, "JPEGImages");
 
         log.info("Load data...");
 
@@ -124,110 +91,39 @@ public class HouseNumberDetection {
                 }
             }
         };
-        InputSplit[] data = new FileSplit(imgDir, NativeImageLoader.ALLOWED_FORMATS, rng).sample(pathFilter, 0.8, 0.2);
+        InputSplit[] data = new FileSplit(imageDir, NativeImageLoader.ALLOWED_FORMATS, rng).sample(pathFilter, 0.95, 0.05);
         InputSplit trainData = data[0];
         InputSplit testData = data[1];
 
-        //FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
-        //FileSplit trainData = new FileSplit(trainDir, NativeImageLoader.ALLOWED_FORMATS, rng);
-        //FileSplit testData = new FileSplit(testDir, NativeImageLoader.ALLOWED_FORMATS, rng);
-
-        //ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(trainDir));
-        //ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new VocLabelProvider(dataDir));
         ObjectDetectionRecordReader recordReaderTrain = new ObjectDetectionRecordReader(height, width, nChannels,
-            gridHeight, gridWidth, new ObjectDetectionLabelProvider(dataDir));
+            gridHeight, gridWidth, new VocLabelProvider(dataDir));
         recordReaderTrain.initialize(trainData);
 
-        //ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new SvhnLabelProvider(testDir));
-        //ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels, gridHeight, gridWidth, new VocLabelProvider(dataDir));
         ObjectDetectionRecordReader recordReaderTest = new ObjectDetectionRecordReader(height, width, nChannels,
-            gridHeight, gridWidth, new ObjectDetectionLabelProvider(dataDir));
+            gridHeight, gridWidth, new VocLabelProvider(dataDir));
         recordReaderTest.initialize(testData);
 
         // ObjectDetectionRecordReader performs regression, so we need to specify it here
         RecordReaderDataSetIterator train = new RecordReaderDataSetIterator(recordReaderTrain, batchSize, 1, 1, true);
         train.setPreProcessor(new ImagePreProcessingScaler(0, 1));
 
+        // "regression=true" in this context just means "don't convert the integer label index to 1 hot"
         RecordReaderDataSetIterator test = new RecordReaderDataSetIterator(recordReaderTest, 1, 1, 1, true);
         test.setPreProcessor(new ImagePreProcessingScaler(0, 1));
 
         ComputationGraph model;
-        String path = System.getProperty("user.dir") + File.separator + "dl4j-examples" + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator;
-        String modelFilename = "tinyYOLO.zip";
+        String modelFilename = "model_rbc.zip";
 
-        if (new File(path + "tinyYOLOFinal.zip").exists()) {
+        if (new File(modelFilename).exists()) {
             log.info("Load model...");
 
             model = ModelSerializer.restoreComputationGraph(modelFilename);
         } else {
             log.info("Build model...");
 
-            // YOLO2
-            /*ComputationGraph pretrainedYOLO2 = YOLO2.builder()
-                .updater(new Nesterovs(learningRate, lrMomentum))
-                .build()
-                .init();
-            INDArray priorsYOLO2 = Nd4j.create(priorBoxes);*/
+            ComputationGraph pretrained = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
+            INDArray priors = Nd4j.create(priorBoxes);
 
-            // VGG19
-            /*ComputationGraph pretrainedVGG19 = VGG19.builder()
-                .updater(new Nesterovs(learningRate, lrMomentum))
-                .build()
-                .init();*/
-
-            // Darknet19
-            /*ComputationGraph pretrainedDarknet19 = Darknet19.builder()
-                .numClasses(nBoxes * (5 + nClasses))
-                .updater(new Nesterovs(learningRate, lrMomentum))
-                .workspaceMode(WorkspaceMode.ENABLED)
-                .inputShape(inputShape)
-                .build()
-                .init();
-            INDArray priorsDarknet19 = Nd4j.create(priorBoxes);*/
-
-            // TinyYOLO
-            ComputationGraph pretrainedTinyYOLO = (ComputationGraph)TinyYOLO.builder().build().initPretrained();
-            INDArray priorsTinyYOLO = Nd4j.create(priorBoxes);
-
-            int layerNumber = 19;
-
-            // YOLO2
-            /*model = new TransferLearning.GraphBuilder(pretrainedYOLO2)
-                .addLayer("convolution2d_23",
-                    new ConvolutionLayer.Builder(1,1)
-                        .nIn(1024)
-                        .nOut(nBoxes * (5 + nClasses))
-                        .weightInit(WeightInit.XAVIER)
-                        .stride(1,1)
-                        .convolutionMode(ConvolutionMode.Same)
-                        .weightInit(WeightInit.RELU)
-                        .activation(Activation.IDENTITY)
-                        .cudnnAlgoMode(ConvolutionLayer.AlgoMode.PREFER_FASTEST)
-                        .build(),
-                    "activation_22")
-                .addLayer("outputs",
-                    new Yolo2OutputLayer.Builder()
-                        .lambbaNoObj(lambdaNoObj)
-                        .lambdaCoord(lambdaCoord)
-                        .boundingBoxPriors(priorsYOLO2)
-                        .build(),
-                    "convolution2d_23")
-                .setOutputs("outputs")
-                .build();*/
-
-            // Darknet19
-            /*model = new TransferLearning.GraphBuilder(pretrainedDarknet19)
-                .addLayer("outputs",
-                    new Yolo2OutputLayer.Builder()
-                        .lambbaNoObj(lambdaNoObj)
-                        .lambdaCoord(lambdaCoord)
-                        .boundingBoxPriors(priorsDarknet19)
-                        .build(),
-                    "loss")
-                .setOutputs("outputs")
-                .build();*/
-
-            // TinyYOLO
             FineTuneConfiguration fineTuneConf = new FineTuneConfiguration.Builder()
                 .seed(seed)
                 .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
@@ -240,7 +136,7 @@ public class HouseNumberDetection {
                 .inferenceWorkspaceMode(WorkspaceMode.SEPARATE)
                 .build();
 
-            model = new TransferLearning.GraphBuilder(pretrainedTinyYOLO)
+            model = new TransferLearning.GraphBuilder(pretrained)
                 .fineTuneConfiguration(fineTuneConf)
                 .removeVertexKeepConnections("conv2d_9")
                 .addLayer("convolution2d_9",
@@ -258,7 +154,7 @@ public class HouseNumberDetection {
                     new Yolo2OutputLayer.Builder()
                         .lambbaNoObj(lambdaNoObj)
                         .lambdaCoord(lambdaCoord)
-                        .boundingBoxPriors(priorsTinyYOLO)
+                        .boundingBoxPriors(priors)
                         .build(),
                     "convolution2d_9")
                 .setOutputs("outputs")
@@ -269,24 +165,21 @@ public class HouseNumberDetection {
             log.info("Train model...");
 
             model.setListeners(new ScoreIterationListener(1));
-            int counter = 0;
+
+
             for (int i = 0; i < nEpochs; i++) {
                 train.reset();
                 while (train.hasNext()) {
                     model.fit(train.next());
                 }
-                log.info("***************************************** Completed epoch {} *****************************************", i);
-                // save the model
-                ModelSerializer.writeModel(model, modelFilename + "tires" + counter++ + ".zip", true);
-                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> model saved <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+                log.info("*** Completed epoch {} ***", i);
             }
-            // save the model
-            ModelSerializer.writeModel(model, modelFilename + "tiresFinal.zip", true);
+            ModelSerializer.writeModel(model, modelFilename, true);
         }
 
         // visualize results on the test set
         NativeImageLoader imageLoader = new NativeImageLoader();
-        CanvasFrame frame = new CanvasFrame("HouseNumberDetection");
+        CanvasFrame frame = new CanvasFrame("RedBloodCellDetection");
         OpenCVFrameConverter.ToMat converter = new OpenCVFrameConverter.ToMat();
         org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer yout =
             (org.deeplearning4j.nn.layers.objdetect.Yolo2OutputLayer)model.getOutputLayer(0);
@@ -319,7 +212,7 @@ public class HouseNumberDetection {
                 rectangle(image, new Point(x1, y1), new Point(x2, y2), Scalar.RED);
                 putText(image, label, new Point(x1 + 2, y2 - 2), FONT_HERSHEY_DUPLEX, 1, Scalar.GREEN);
             }
-            frame.setTitle(new File(metadata.getURI()).getName() + " - HouseNumberDetection");
+            frame.setTitle(new File(metadata.getURI()).getName() + " - RedBloodCellDetection");
             frame.setCanvasSize(w, h);
             frame.showImage(converter.convert(image));
             frame.waitKey();
